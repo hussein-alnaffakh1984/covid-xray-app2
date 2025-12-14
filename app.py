@@ -2,18 +2,50 @@ import streamlit as st
 import numpy as np
 import tensorflow as tf
 from PIL import Image
+from tensorflow.keras import layers, models
+from tensorflow.keras.applications import MobileNetV2
 
 st.set_page_config(page_title="COVID X-ray Classifier", page_icon="🩻", layout="centered")
 
 IMG_SIZE = (224, 224)
-CLASS_NAMES = ["COVID", "Normal"]  # عدّلها إذا ترتيبك مختلف أثناء التدريب
+CLASS_NAMES = ["COVID", "Normal"]  # إذا ترتيبك مختلف غيّره
 
 @st.cache_resource
-def load_model():
-    # compile=False يحل مشاكل عدم التوافق بين إصدارات Keras/TF
-    return tf.keras.models.load_model("covid_mobilenetv2_model.keras", compile=False)
+def build_and_load_model():
+    # نفس المعمارية التي درّبتها في Colab
+    data_aug = tf.keras.Sequential([
+        layers.RandomFlip("horizontal"),
+        layers.RandomRotation(0.05),
+        layers.RandomZoom(0.10),
+    ])
 
-model = load_model()
+    base_model = MobileNetV2(
+        input_shape=(224, 224, 3),
+        include_top=False,
+        weights="imagenet"
+    )
+    base_model.trainable = False
+
+    model = models.Sequential([
+        layers.Input(shape=(224, 224, 3)),
+        data_aug,
+        layers.Rescaling(1./255),
+        base_model,
+        layers.GlobalAveragePooling2D(),
+        layers.Dense(128, activation="relu"),
+        layers.Dropout(0.5),
+        layers.Dense(1, activation="sigmoid")
+    ])
+
+    # مهم جدًا: نبني النموذج قبل تحميل الأوزان
+    model(np.zeros((1, 224, 224, 3), dtype=np.float32), training=False)
+
+    # حمّل الأوزان
+    model.load_weights("covid_weights.h5")
+
+    return model
+
+model = build_and_load_model()
 
 st.title("🩻 COVID X-ray Classification (MobileNetV2)")
 st.write("Upload an X-ray image and the model will predict the class.")
